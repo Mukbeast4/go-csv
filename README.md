@@ -1,5 +1,11 @@
 # go-csv
 
+[![CI](https://github.com/Mukbeast4/go-csv/actions/workflows/ci.yml/badge.svg)](https://github.com/Mukbeast4/go-csv/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/mukbeast4/go-csv.svg)](https://pkg.go.dev/github.com/mukbeast4/go-csv)
+[![Go Report Card](https://goreportcard.com/badge/github.com/mukbeast4/go-csv)](https://goreportcard.com/report/github.com/mukbeast4/go-csv)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/Mukbeast4/go-csv)](https://github.com/Mukbeast4/go-csv/releases)
+
 Pure Go, zero-dependency CSV library. Streaming reads and writes, typed cell accessors, header-based access, A1 notation, automatic delimiter and encoding detection.
 
 ## Features

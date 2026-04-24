@@ -10,10 +10,10 @@ import (
 
 func TestDetectFormat(t *testing.T) {
 	tests := map[string]Format{
-		"file.csv":    FormatNone,
-		"file.csv.gz": FormatGzip,
+		"file.csv":     FormatNone,
+		"file.csv.gz":  FormatGzip,
 		"file.csv.bz2": FormatBzip2,
-		"file.CSV.GZ": FormatGzip,
+		"file.CSV.GZ":  FormatGzip,
 	}
 	for path, want := range tests {
 		if got := DetectFormat(path); got != want {

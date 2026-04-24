@@ -30,7 +30,7 @@ type typeRule struct {
 	fn   func(string) error
 }
 
-func (r *typeRule) Name() string              { return "type:" + r.kind }
+func (r *typeRule) Name() string { return "type:" + r.kind }
 func (r *typeRule) Check(v string) error {
 	if v == "" {
 		return nil
@@ -87,7 +87,7 @@ type regexRule struct {
 	raw     string
 }
 
-func (r *regexRule) Name() string              { return "regex" }
+func (r *regexRule) Name() string { return "regex" }
 func (r *regexRule) Check(v string) error {
 	if v == "" {
 		return nil
@@ -193,7 +193,7 @@ type customRule struct {
 	fn   func(string) error
 }
 
-func (r *customRule) Name() string              { return r.name }
+func (r *customRule) Name() string         { return r.name }
 func (r *customRule) Check(v string) error { return r.fn(v) }
 
 func Custom(name string, fn func(string) error) Rule {
