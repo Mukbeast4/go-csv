@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"reflect"
+	"sort"
 
 	gocsv "github.com/mukbeast4/go-csv"
 )
@@ -49,12 +50,18 @@ func UnmarshalFrom(r io.Reader, v any) error {
 	defer it.Close()
 	headers := it.Headers()
 	colMap := buildColMap(info, headers)
+	restCols := buildRestCols(info, colMap, headers)
 	slice := reflect.MakeSlice(rv.Type(), 0, 0)
 	for it.Next() {
 		row := it.Row()
 		elem := reflect.New(elemType).Elem()
 		if err := rowToStruct(row, elem, info, colMap); err != nil {
 			return err
+		}
+		if info.RestField != nil && len(restCols) > 0 {
+			if err := fillRestMap(elem, info, headers, row, restCols); err != nil {
+				return err
+			}
 		}
 		if ptr {
 			p := reflect.New(elemType)
@@ -83,6 +90,51 @@ func buildColMap(info *structInfo, headers []string) []int {
 		}
 	}
 	return colMap
+}
+
+func buildRestCols(info *structInfo, colMap []int, headers []string) []int {
+	if info.RestField == nil {
+		return nil
+	}
+	matched := map[int]bool{}
+	for _, c := range colMap {
+		if c >= 0 {
+			matched[c] = true
+		}
+	}
+	var out []int
+	for i := range headers {
+		if !matched[i] {
+			out = append(out, i)
+		}
+	}
+	sort.Ints(out)
+	return out
+}
+
+func fillRestMap(target reflect.Value, info *structInfo, headers []string, row []string, restCols []int) error {
+	m := fieldByIndexWrite(target, info.RestField.Index)
+	if m.Kind() == reflect.Pointer {
+		if m.IsNil() {
+			m.Set(reflect.New(m.Type().Elem()))
+		}
+		m = m.Elem()
+	}
+	if m.Kind() != reflect.Map {
+		return fmt.Errorf("marshal: rest field must be map")
+	}
+	if m.IsNil() {
+		m.Set(reflect.MakeMap(m.Type()))
+	}
+	for _, ci := range restCols {
+		key := headers[ci]
+		val := ""
+		if ci < len(row) {
+			val = row[ci]
+		}
+		m.SetMapIndex(reflect.ValueOf(key), reflect.ValueOf(val))
+	}
+	return nil
 }
 
 func rowToStruct(row []string, target reflect.Value, info *structInfo, colMap []int) error {
@@ -120,12 +172,14 @@ func fieldByIndexWrite(v reflect.Value, index []int) reflect.Value {
 }
 
 type Decoder struct {
-	it      *gocsv.RowIterator
-	elem    reflect.Type
-	info    *structInfo
-	colMap  []int
-	err     error
-	hasNext bool
+	it       *gocsv.RowIterator
+	elem     reflect.Type
+	info     *structInfo
+	colMap   []int
+	restCols []int
+	headers  []string
+	err      error
+	hasNext  bool
 }
 
 func NewDecoder(r io.Reader, elemSample any) (*Decoder, error) {
@@ -141,11 +195,15 @@ func NewDecoder(r io.Reader, elemSample any) (*Decoder, error) {
 	if err != nil {
 		return nil, err
 	}
+	headers := it.Headers()
+	colMap := buildColMap(info, headers)
 	return &Decoder{
-		it:     it,
-		elem:   t,
-		info:   info,
-		colMap: buildColMap(info, it.Headers()),
+		it:       it,
+		elem:     t,
+		info:     info,
+		colMap:   colMap,
+		restCols: buildRestCols(info, colMap, headers),
+		headers:  headers,
 	}, nil
 }
 
@@ -160,7 +218,17 @@ func (d *Decoder) Decode(v any) error {
 		}
 		return io.EOF
 	}
-	return rowToStruct(d.it.Row(), rv.Elem(), d.info, d.colMap)
+	row := d.it.Row()
+	target := rv.Elem()
+	if err := rowToStruct(row, target, d.info, d.colMap); err != nil {
+		return err
+	}
+	if d.info.RestField != nil && len(d.restCols) > 0 {
+		if err := fillRestMap(target, d.info, d.headers, row, d.restCols); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (d *Decoder) Close() error {
@@ -168,10 +236,11 @@ func (d *Decoder) Close() error {
 }
 
 type Encoder struct {
-	sw      *gocsv.StreamWriter
-	info    *structInfo
-	written bool
-	elem    reflect.Type
+	sw       *gocsv.StreamWriter
+	info     *structInfo
+	written  bool
+	elem     reflect.Type
+	restKeys []string
 }
 
 func NewEncoder(w io.Writer, elemSample any) (*Encoder, error) {
@@ -190,9 +259,26 @@ func NewEncoder(w io.Writer, elemSample any) (*Encoder, error) {
 	}, nil
 }
 
+func (e *Encoder) SetRestKeys(keys []string) {
+	e.restKeys = append([]string(nil), keys...)
+	sort.Strings(e.restKeys)
+}
+
 func (e *Encoder) Encode(v any) error {
 	if !e.written {
-		if err := e.sw.WriteHeader(e.info.Headers); err != nil {
+		headers := append([]string{}, e.info.Headers...)
+		if e.info.RestField != nil {
+			if e.restKeys == nil {
+				return fmt.Errorf("marshal: struct has rest field; call SetRestKeys before Encode")
+			}
+			for _, k := range e.restKeys {
+				if _, collides := e.info.ByName[k]; collides {
+					return fmt.Errorf("marshal: rest key %q collides with struct field", k)
+				}
+			}
+			headers = append(headers, e.restKeys...)
+		}
+		if err := e.sw.WriteHeader(headers); err != nil {
 			return err
 		}
 		e.written = true
@@ -207,6 +293,9 @@ func (e *Encoder) Encode(v any) error {
 	row, err := structToRow(rv, e.info)
 	if err != nil {
 		return err
+	}
+	if e.info.RestField != nil {
+		row = appendRestValues(row, rv, e.info, e.restKeys)
 	}
 	return e.sw.WriteStrRow(row)
 }

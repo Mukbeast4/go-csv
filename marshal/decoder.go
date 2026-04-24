@@ -1,6 +1,7 @@
 package marshal
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -16,6 +17,26 @@ func decodeValue(raw string, target reflect.Value, tag fieldTag) error {
 		}
 		if tag.OmitEmpty {
 			return nil
+		}
+	}
+	if tag.JSON {
+		if raw == "" {
+			return nil
+		}
+		if target.Kind() == reflect.Pointer {
+			if target.IsNil() {
+				target.Set(reflect.New(target.Type().Elem()))
+			}
+			return json.Unmarshal([]byte(raw), target.Interface())
+		}
+		if !target.CanAddr() {
+			return fmt.Errorf("marshal: json tag requires addressable field")
+		}
+		return json.Unmarshal([]byte(raw), target.Addr().Interface())
+	}
+	if !isTimeType(target.Type()) {
+		if ok, err := tryUnmarshaler(target, raw); ok {
+			return err
 		}
 	}
 	if target.Kind() == reflect.Pointer {
