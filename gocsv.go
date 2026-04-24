@@ -61,7 +61,6 @@ func openInternal(reader io.Reader, raw []byte, cfg *config) (*File, error) {
 		_, offset = encoding.DetectBOM(raw)
 	}
 	payload := raw[offset:]
-	decoded := encoding.NewDecoder(bytes.NewReader(payload), enc)
 
 	if cfg.autoSniff {
 		delim := sniffDelimiter(payload)
@@ -70,7 +69,15 @@ func openInternal(reader io.Reader, raw []byte, cfg *config) (*File, error) {
 		}
 	}
 
-	rows, errs, err := readAll(decoded, cfg)
+	var rows [][]string
+	var errs []*ParseError
+	var err error
+	if !cfg.stdlibParser && (enc == EncodingUTF8 || enc == EncodingAuto) {
+		rows, errs, err = parseBytesAdapter(payload, cfg)
+	} else {
+		decoded := encoding.NewDecoder(bytes.NewReader(payload), enc)
+		rows, errs, err = readAll(decoded, cfg)
+	}
 	if err != nil && cfg.dialect.ErrorMode == ErrorModeStrict {
 		return nil, err
 	}
@@ -93,6 +100,29 @@ func openInternal(reader io.Reader, raw []byte, cfg *config) (*File, error) {
 	}
 
 	return f, nil
+}
+
+func parseBytesAdapter(data []byte, cfg *config) ([][]string, []*ParseError, error) {
+	rawRows, rawErrs, err := parser.ParseBytes(data, cfg.dialect, cfg.unsafeStrings)
+	if err != nil {
+		pe := &ParseError{Err: err}
+		if parseErr, ok := err.(*parser.ParseError); ok {
+			pe = &ParseError{Line: parseErr.Line, Column: parseErr.Column, Offset: parseErr.Offset, Err: parseErr.Err}
+		}
+		return rawRows, convertParseErrors(rawErrs), pe
+	}
+	return rawRows, convertParseErrors(rawErrs), nil
+}
+
+func convertParseErrors(src []*parser.ParseError) []*ParseError {
+	if src == nil {
+		return nil
+	}
+	out := make([]*ParseError, len(src))
+	for i, e := range src {
+		out[i] = &ParseError{Line: e.Line, Column: e.Column, Offset: e.Offset, Err: e.Err}
+	}
+	return out
 }
 
 func readAll(r io.Reader, cfg *config) ([][]string, []*ParseError, error) {

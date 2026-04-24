@@ -25,14 +25,15 @@ const (
 )
 
 type config struct {
-	dialect      dialect.Dialect
-	encoding     Encoding
-	hasHeader    bool
-	headerSet    bool
-	autoSniff    bool
-	writeBOM     bool
-	stdlibParser bool
-	bufferSize   int
+	dialect       dialect.Dialect
+	encoding      Encoding
+	hasHeader     bool
+	headerSet     bool
+	autoSniff     bool
+	writeBOM      bool
+	stdlibParser  bool
+	unsafeStrings bool
+	bufferSize    int
 }
 
 func defaultConfig() *config {
@@ -116,6 +117,10 @@ func WithStdlibParser() Option {
 
 func WithWriteBOM(enabled bool) Option {
 	return func(c *config) { c.writeBOM = enabled }
+}
+
+func WithUnsafeStrings() Option {
+	return func(c *config) { c.unsafeStrings = true }
 }
 
 func applyOptions(opts []Option) *config {

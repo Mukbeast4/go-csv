@@ -148,27 +148,17 @@ func (p *Parser) readLine() ([]byte, bool, error) {
 	p.offset += int64(len(line))
 
 	hasQuote := bytes.IndexByte(line, p.quote) >= 0
-	if !hasQuote {
-		if err != nil && err != bufio.ErrBufferFull {
-			return append([]byte(nil), line...), false, err
+	if err == nil || err == io.EOF {
+		if !hasQuote {
+			return line, false, err
 		}
-		if err == bufio.ErrBufferFull {
-			full := append([]byte(nil), line...)
-			for err == bufio.ErrBufferFull {
-				line, err = p.r.ReadSlice('\n')
-				p.offset += int64(len(line))
-				full = append(full, line...)
-				if bytes.IndexByte(line, p.quote) >= 0 {
-					hasQuote = true
-				}
-			}
-			return full, hasQuote, err
+		if !quoteBalance(line, p.quote) {
+			return line, true, err
 		}
-		return append([]byte(nil), line...), false, nil
 	}
 
 	full := append([]byte(nil), line...)
-	inQuote := quoteBalance(full, p.quote)
+	inQuote := hasQuote && quoteBalance(full, p.quote)
 	for inQuote || err == bufio.ErrBufferFull {
 		if err != nil && err != bufio.ErrBufferFull {
 			break
@@ -177,12 +167,19 @@ func (p *Parser) readLine() ([]byte, bool, error) {
 		p.offset += int64(len(more))
 		full = append(full, more...)
 		err = merr
-		inQuote = quoteBalance(full, p.quote)
+		if bytes.IndexByte(more, p.quote) >= 0 {
+			hasQuote = true
+		}
+		if hasQuote {
+			inQuote = quoteBalance(full, p.quote)
+		} else {
+			inQuote = false
+		}
 		if merr == io.EOF {
 			break
 		}
 	}
-	return full, true, err
+	return full, hasQuote, err
 }
 
 func quoteBalance(line []byte, quote byte) bool {
@@ -211,32 +208,31 @@ func (p *Parser) parseLineSimple(line []byte, readErr error) ([]string, error) {
 		return nil, io.EOF
 	}
 
-	fields := splitBytes(line, p.delim)
-	out := make([]string, len(fields))
-	for i, f := range fields {
-		if p.d.TrimLeadingSpace {
-			f = bytes.TrimLeft(f, " \t")
-		}
-		out[i] = string(f)
+	expected := p.expected
+	if expected == 0 {
+		expected = bytes.Count(line, []byte{p.delim}) + 1
 	}
-	p.line++
-	return out, nil
-}
+	out := make([]string, 0, expected)
 
-func splitBytes(b []byte, sep byte) [][]byte {
-	n := bytes.Count(b, []byte{sep}) + 1
-	result := make([][]byte, n)
 	start := 0
-	idx := 0
-	for i := 0; i < len(b); i++ {
-		if b[i] == sep {
-			result[idx] = b[start:i]
-			idx++
+	for i := 0; i < len(line); i++ {
+		if line[i] == p.delim {
+			f := line[start:i]
+			if p.d.TrimLeadingSpace {
+				f = bytes.TrimLeft(f, " \t")
+			}
+			out = append(out, string(f))
 			start = i + 1
 		}
 	}
-	result[idx] = b[start:]
-	return result
+	f := line[start:]
+	if p.d.TrimLeadingSpace {
+		f = bytes.TrimLeft(f, " \t")
+	}
+	out = append(out, string(f))
+
+	p.line++
+	return out, nil
 }
 
 func trimLeadingHeadSpace(b []byte) []byte {
@@ -258,7 +254,11 @@ func (p *Parser) parseLineComplex(line []byte, readErr error) ([]string, error) 
 		return nil, io.EOF
 	}
 
-	var fields []string
+	expected := p.expected
+	if expected == 0 {
+		expected = 8
+	}
+	fields := make([]string, 0, expected)
 	p.fieldBuf = p.fieldBuf[:0]
 	i := 0
 	for i < len(line) {

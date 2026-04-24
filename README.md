@@ -167,17 +167,22 @@ f.Range("A1:B2").SetValues([][]any{{"a", "b"}, {"c", "d"}})
 
 ## Performance
 
-Benchmarks on Apple M4 Pro (10k-row file):
+Benchmarks on Apple M4 Pro (10k-row file, mixed quoted/unquoted):
 
 ```
-BenchmarkOpenBytes      2.5 ms/op   210 MB/s
-BenchmarkStreamRead     2.2 ms/op   240 MB/s
-BenchmarkStreamWrite    1.6 ms/op
-BenchmarkCellLookup      20 ns/op
-BenchmarkSniffDelimiter  10 µs/op   593 MB/s
+BenchmarkOpenBytes          1.3 ms/op    411 MB/s   (safe, default)
+BenchmarkOpenBytesUnsafe    0.9 ms/op    561 MB/s   (WithUnsafeStrings)
+BenchmarkOpenBytesStdlib    0.9 ms/op    580 MB/s   (encoding/csv)
+BenchmarkStreamRead         2.2 ms/op    240 MB/s
+BenchmarkCellLookup          20 ns/op
+BenchmarkSniffDelimiter      10 µs/op    593 MB/s
 ```
 
-Use `WithStdlibParser()` for maximum throughput if you do not need BOM detection, encoding conversion, or collected error reports.
+### Fast options
+
+- **Default** — safe, 71 % of stdlib throughput, half the allocations.
+- **`WithUnsafeStrings()`** — uses `unsafe.String` for zero-copy fields, reaches ~97 % of stdlib throughput with half as many allocations. **Caller must not modify the input `[]byte` while the `*File` is in use** — fields share memory with the input buffer.
+- **`WithStdlibParser()`** — delegate to `encoding/csv`. Loses BOM/encoding/error-mode features but matches stdlib exactly.
 
 ## Concurrency
 
