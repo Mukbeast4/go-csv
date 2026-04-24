@@ -21,6 +21,19 @@ type RowIterator struct {
 	streaming bool
 	headers   []string
 	closer    io.Closer
+	nextFn    func() ([]string, error)
+}
+
+func NewRowIteratorFromFunc(headers []string, next func() ([]string, error), closer io.Closer) *RowIterator {
+	hdrs := make([]string, len(headers))
+	copy(hdrs, headers)
+	return &RowIterator{
+		headers:   hdrs,
+		nextFn:    next,
+		rowIdx:    -1,
+		streaming: true,
+		closer:    closer,
+	}
 }
 
 func (f *File) NewRowIterator() (*RowIterator, error) {
@@ -126,6 +139,19 @@ func peekSample(r io.Reader, n int) (*peekedReader, error) {
 func (it *RowIterator) Next() bool {
 	if it.closed || it.err != nil {
 		return false
+	}
+	if it.nextFn != nil {
+		row, err := it.nextFn()
+		if err == io.EOF {
+			return false
+		}
+		if err != nil {
+			it.err = err
+			return false
+		}
+		it.current = row
+		it.rowIdx++
+		return true
 	}
 	if it.streaming {
 		row, err := it.parser.Next()

@@ -1,6 +1,7 @@
 package marshal
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -11,6 +12,21 @@ import (
 func encodeValue(v reflect.Value, tag fieldTag) (string, error) {
 	if !v.IsValid() {
 		return "", nil
+	}
+	if tag.JSON {
+		if v.Kind() == reflect.Pointer && v.IsNil() {
+			return "", nil
+		}
+		b, err := json.Marshal(v.Interface())
+		if err != nil {
+			return "", err
+		}
+		return string(b), nil
+	}
+	if !isTimeType(v.Type()) {
+		if s, ok, err := tryMarshaler(v); ok {
+			return s, err
+		}
 	}
 	for v.Kind() == reflect.Pointer {
 		if v.IsNil() {

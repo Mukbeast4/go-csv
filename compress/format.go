@@ -8,6 +8,7 @@ const (
 	FormatNone Format = iota
 	FormatGzip
 	FormatBzip2
+	FormatZstd
 )
 
 func (f Format) String() string {
@@ -16,6 +17,8 @@ func (f Format) String() string {
 		return "gzip"
 	case FormatBzip2:
 		return "bzip2"
+	case FormatZstd:
+		return "zstd"
 	default:
 		return "none"
 	}
@@ -28,6 +31,8 @@ func DetectFormat(path string) Format {
 		return FormatGzip
 	case strings.HasSuffix(lower, ".bz2"), strings.HasSuffix(lower, ".bzip2"):
 		return FormatBzip2
+	case strings.HasSuffix(lower, ".zst"), strings.HasSuffix(lower, ".zstd"):
+		return FormatZstd
 	default:
 		return FormatNone
 	}

@@ -19,7 +19,7 @@ Pure Go, zero-dependency CSV library. Streaming reads and writes, typed cell acc
 - UTF-8, UTF-16 LE/BE, ISO-8859-1, Windows-1252 with BOM handling
 - RFC 4180 compliant, with lazy-quotes and error-recovery modes (`Strict`, `Skip`, `Collect`)
 - `ParseError` with line, column, and byte offset for precise diagnostics
-- Zero external dependencies (stdlib only, no `require` in `go.mod`)
+- Zero external dependencies in the core package (stdlib only). Subpackages opt-in: `xlsx` uses excelize, `ods` uses go-ods, `compress` uses klauspost/compress for zstd.
 
 ## Requirements
 
@@ -238,7 +238,43 @@ var u User
 dec.Decode(&u)
 ```
 
-Tag options: `name`, `required`, `omitempty`, `format=<layout>`, `sep=<rune>`, `-` to skip.
+Tag options: `name`, `required`, `omitempty`, `format=<layout>`, `sep=<rune>`, `flatten`, `prefix=<str>`, `json`, `rest`, `-` to skip.
+
+**Custom types via interfaces** — implement `marshal.Marshaler` / `marshal.Unmarshaler` for CSV-specific serialization. Types implementing `encoding.TextMarshaler` / `encoding.TextUnmarshaler` work transparently (e.g. `*big.Int`, `net.IP`). Priority: CSV interface > Text interface > built-in.
+
+```go
+type Color struct{ R, G, B int }
+func (c Color) MarshalCSV() (string, error)  { return fmt.Sprintf("#%02x%02x%02x", c.R, c.G, c.B), nil }
+func (c *Color) UnmarshalCSV(s string) error { _, err := fmt.Sscanf(s, "#%02x%02x%02x", &c.R, &c.G, &c.B); return err }
+```
+
+**Nested structs** — opt-in via `flatten` (multi-column) or `json` (single JSON-encoded cell):
+
+```go
+type Address struct {
+    Street string `csv:"street"`
+    City   string `csv:"city"`
+}
+type Employee struct {
+    ID      int     `csv:"id"`
+    Addr    Address `csv:"addr,flatten"`          // → addr.street, addr.city
+    Home    Address `csv:"home,flatten,prefix=h_"` // → h_street, h_city
+    Profile Profile `csv:"profile,json"`           // single JSON cell
+}
+```
+
+**Rest map** — capture unmatched columns into a `map[string]string` via `csv:",rest"`:
+
+```go
+type Record struct {
+    ID    int               `csv:"id"`
+    Name  string            `csv:"name"`
+    Extra map[string]string `csv:",rest"`
+}
+// On decode: unknown headers go into Extra.
+// On encode (slice): union of all keys, sorted, appended as extra columns.
+// Streaming Encoder: call SetRestKeys(...) before Encode.
+```
 
 ### `schema` — Declarative validation
 
@@ -269,17 +305,19 @@ d, _ := merge.Diff(before, after, merge.On("id"))
 // d.Added / d.Removed / d.Modified
 ```
 
-### `compress` — gzip / bzip2 transparent I/O
+### `compress` — gzip / bzip2 / zstd transparent I/O
 
 ```go
 import "github.com/mukbeast4/go-csv/compress"
 
-f, _ := compress.Open("data.csv.gz")
-compress.SaveAs(f, "out.csv.gz")
+f, _ := compress.Open("data.csv.gz")   // .gz, .bz2 (read), .zst/.zstd
+compress.SaveAs(f, "out.csv.zst")      // gz and zstd also supported for write
 
-sw, closer, _ := compress.NewStreamWriter("huge.csv.gz")
+sw, closer, _ := compress.NewStreamWriter("huge.csv.zst")
 defer closer.Close()
 ```
+
+Format is auto-detected from the extension. zstd read/write uses `github.com/klauspost/compress/zstd` (pure Go, no cgo). bzip2 is read-only (stdlib limitation).
 
 ### `ods` — CSV ↔ ODS via go-ods
 
@@ -290,6 +328,57 @@ ods.ToODS(csvFile, "report.ods", ods.WithSheetName("Data"))
 f, _ := ods.FromODS("report.ods", "Sheet1")
 ods.AppendSheet("report.ods", "Q2", csvFile)
 ```
+
+### `xlsx` — CSV ↔ XLSX via excelize
+
+```go
+import "github.com/mukbeast4/go-csv/xlsx"
+
+xlsx.ToXLSX(csvFile, "report.xlsx", xlsx.WithSheetName("Data"), xlsx.WithAutoFilter(true))
+f, _ := xlsx.FromXLSX("report.xlsx", "Data")
+xlsx.AppendSheet("report.xlsx", "Q2", csvFile)
+
+names, _ := xlsx.SheetNames("report.xlsx")
+
+// Streaming for large files (> ~100k rows)
+sw, closer, _ := xlsx.NewStreamWriter("huge.xlsx", "Data")
+defer closer.Close()
+sw.WriteHeader([]string{"id", "value"})
+for i := 0; i < 1_000_000; i++ {
+    sw.WriteStrRow([]string{strconv.Itoa(i), "x"})
+}
+
+it, rcloser, _ := xlsx.NewStreamReader("huge.xlsx", "Data")
+defer rcloser.Close()
+for it.Next() {
+    row := it.Row()
+    _ = row
+}
+```
+
+Depends on `github.com/xuri/excelize/v2`. Cell types are auto-inferred on write (ints, floats, bools, dates become typed Excel cells) — disable with `WithTypeInfer(false)`.
+
+### `jsonx` — CSV ↔ JSON / NDJSON
+
+```go
+import "github.com/mukbeast4/go-csv/jsonx"
+
+jsonx.ToJSON(f, os.Stdout, jsonx.WithPretty(true))   // [{...},{...}]
+jsonx.ToNDJSON(f, os.Stdout)                          // {...}\n{...}
+
+f, _ := jsonx.FromJSON(r)        // accepts [{...},{...}]
+f, _ := jsonx.FromNDJSON(r)      // streams line-delimited objects
+
+// Streaming NDJSON
+enc := jsonx.NewEncoder(w, []string{"id", "name"})
+enc.Encode([]string{"1", "Alice"})
+
+it, _ := jsonx.StreamReader(r)  // returns a *gocsv.RowIterator
+defer it.Close()
+for it.Next() { ... }
+```
+
+Type inference is on by default (`"123"` → `123`, `"true"` → `true`). Header order is preserved in JSON output via a custom ordered-map marshaler. Large integers (>2^53) are preserved via `json.Decoder.UseNumber()` on decode.
 
 ### `cmd/gocsv` — CLI binary
 
@@ -304,6 +393,10 @@ gocsv sort -c age -desc users.csv
 gocsv stats file.csv
 gocsv validate -schema schema.json file.csv
 gocsv convert -to ods file.csv out.ods
+gocsv convert -to xlsx file.csv out.xlsx
+gocsv convert -to json file.csv out.json
+gocsv convert -to ndjson file.csv out.ndjson
+gocsv convert -to zst file.csv out.csv.zst
 gocsv join -on user_id -mode left a.csv b.csv
 gocsv diff -on id before.csv after.csv
 gocsv sql "SELECT city, COUNT(*), AVG(age) FROM t GROUP BY city" users.csv
@@ -325,6 +418,8 @@ go run ./examples/marshal
 go run ./examples/schema
 go run ./examples/merge
 go run ./examples/compress
+go run ./examples/jsonx
+go run ./examples/xlsx
 ```
 
 ## License

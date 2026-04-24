@@ -12,6 +12,10 @@ type fieldTag struct {
 	OmitEmpty bool
 	Required  bool
 	Skip      bool
+	Flatten   bool
+	JSON      bool
+	Rest      bool
+	Prefix    string
 }
 
 func parseTag(tag reflect.StructTag, fieldName string) fieldTag {
@@ -34,10 +38,18 @@ func parseTag(tag reflect.StructTag, fieldName string) fieldTag {
 			ft.OmitEmpty = true
 		case opt == "required":
 			ft.Required = true
+		case opt == "flatten":
+			ft.Flatten = true
+		case opt == "json":
+			ft.JSON = true
+		case opt == "rest":
+			ft.Rest = true
 		case strings.HasPrefix(opt, "format="):
 			ft.Format = strings.TrimPrefix(opt, "format=")
 		case strings.HasPrefix(opt, "sep="):
 			ft.Separator = strings.TrimPrefix(opt, "sep=")
+		case strings.HasPrefix(opt, "prefix="):
+			ft.Prefix = strings.TrimPrefix(opt, "prefix=")
 		}
 	}
 	return ft

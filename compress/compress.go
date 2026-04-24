@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/klauspost/compress/zstd"
 	gocsv "github.com/mukbeast4/go-csv"
 )
 
@@ -116,6 +117,13 @@ func decode(data []byte, format Format) ([]byte, error) {
 	case FormatBzip2:
 		br := bzip2.NewReader(bytes.NewReader(data))
 		return io.ReadAll(br)
+	case FormatZstd:
+		zr, err := zstd.NewReader(bytes.NewReader(data))
+		if err != nil {
+			return nil, err
+		}
+		defer zr.Close()
+		return io.ReadAll(zr)
 	default:
 		return nil, fmt.Errorf("compress: unsupported format")
 	}
@@ -137,6 +145,20 @@ func encode(data []byte, format Format) ([]byte, error) {
 		return buf.Bytes(), nil
 	case FormatBzip2:
 		return nil, fmt.Errorf("compress: bzip2 write not supported in stdlib")
+	case FormatZstd:
+		var buf bytes.Buffer
+		zw, err := zstd.NewWriter(&buf)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := zw.Write(data); err != nil {
+			zw.Close()
+			return nil, err
+		}
+		if err := zw.Close(); err != nil {
+			return nil, err
+		}
+		return buf.Bytes(), nil
 	default:
 		return nil, fmt.Errorf("compress: unsupported format")
 	}
@@ -158,6 +180,12 @@ func wrapDecoder(r io.Reader, format Format) (io.Reader, io.Closer, error) {
 		return gr, gr, nil
 	case FormatBzip2:
 		return bzip2.NewReader(r), nopCloser{}, nil
+	case FormatZstd:
+		zr, err := zstd.NewReader(r)
+		if err != nil {
+			return nil, nil, err
+		}
+		return zr, zstdCloser{zr}, nil
 	default:
 		return nil, nil, fmt.Errorf("compress: unsupported format")
 	}
@@ -172,7 +200,17 @@ func wrapEncoder(w io.Writer, format Format) (io.Writer, io.Closer, error) {
 		return gw, gw, nil
 	case FormatBzip2:
 		return nil, nil, fmt.Errorf("compress: bzip2 write not supported")
+	case FormatZstd:
+		zw, err := zstd.NewWriter(w)
+		if err != nil {
+			return nil, nil, err
+		}
+		return zw, zw, nil
 	default:
 		return nil, nil, fmt.Errorf("compress: unsupported format")
 	}
 }
+
+type zstdCloser struct{ r *zstd.Decoder }
+
+func (c zstdCloser) Close() error { c.r.Close(); return nil }
