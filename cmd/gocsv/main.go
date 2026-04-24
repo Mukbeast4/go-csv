@@ -6,14 +6,18 @@ import (
 )
 
 var commands = map[string]func(args []string) error{
-	"head":     cmdHead,
-	"tail":     cmdTail,
-	"select":   cmdSelect,
-	"filter":   cmdFilter,
-	"convert":  cmdConvert,
-	"stats":    cmdStats,
-	"validate": cmdValidate,
-	"join":     cmdJoin,
+	"head":       cmdHead,
+	"tail":       cmdTail,
+	"select":     cmdSelect,
+	"filter":     cmdFilter,
+	"convert":    cmdConvert,
+	"stats":      cmdStats,
+	"validate":   cmdValidate,
+	"join":       cmdJoin,
+	"gen-struct": cmdGenStruct,
+	"sql":        cmdSQL,
+	"diff":       cmdDiff,
+	"sort":       cmdSort,
 }
 
 func main() {
@@ -44,14 +48,18 @@ func usage() {
 	fmt.Println("Usage: gocsv <command> [flags] <args>")
 	fmt.Println()
 	fmt.Println("Commands:")
-	fmt.Println("  head      Print first N rows")
-	fmt.Println("  tail      Print last N rows")
-	fmt.Println("  select    Output only selected columns")
-	fmt.Println("  filter    Filter rows by expression")
-	fmt.Println("  convert   Convert between CSV/ODS/gzip")
-	fmt.Println("  stats     Print row/column/type stats")
-	fmt.Println("  validate  Validate against a schema")
-	fmt.Println("  join      Join two CSV files on a key")
+	fmt.Println("  head        Print first N rows")
+	fmt.Println("  tail        Print last N rows")
+	fmt.Println("  select      Output only selected columns")
+	fmt.Println("  filter      Filter rows by expression")
+	fmt.Println("  sort        Sort rows by column")
+	fmt.Println("  convert     Convert between CSV/ODS/gzip")
+	fmt.Println("  stats       Print row/column/type stats")
+	fmt.Println("  validate    Validate against a schema")
+	fmt.Println("  join        Join two CSV files on a key")
+	fmt.Println("  diff        Diff two CSV files")
+	fmt.Println("  sql         Run SQL-like query: SELECT/WHERE/GROUP BY/ORDER BY/LIMIT")
+	fmt.Println("  gen-struct  Infer Go struct from CSV columns")
 	fmt.Println()
 	fmt.Println("Run 'gocsv <command> -h' for command-specific help.")
 }

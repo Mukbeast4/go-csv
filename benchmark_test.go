@@ -42,6 +42,38 @@ func BenchmarkOpenBytesUnsafe(b *testing.B) {
 	}
 }
 
+func BenchmarkOpenBytesParallel(b *testing.B) {
+	data := makeLargeCSV(200000)
+	b.ResetTimer()
+	b.SetBytes(int64(len(data)))
+	for i := 0; i < b.N; i++ {
+		_, err := OpenBytes(data,
+			WithHeader(true),
+			WithUnsafeStrings(),
+			WithParallelThreshold(1),
+		)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkOpenBytesSequentialLarge(b *testing.B) {
+	data := makeLargeCSV(200000)
+	b.ResetTimer()
+	b.SetBytes(int64(len(data)))
+	for i := 0; i < b.N; i++ {
+		_, err := OpenBytes(data,
+			WithHeader(true),
+			WithUnsafeStrings(),
+			WithParallel(1),
+		)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 func BenchmarkOpenBytesStdlib(b *testing.B) {
 	data := makeLargeCSV(10000)
 	b.ResetTimer()

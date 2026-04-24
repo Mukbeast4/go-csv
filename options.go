@@ -25,25 +25,29 @@ const (
 )
 
 type config struct {
-	dialect       dialect.Dialect
-	encoding      Encoding
-	hasHeader     bool
-	headerSet     bool
-	autoSniff     bool
-	writeBOM      bool
-	stdlibParser  bool
-	unsafeStrings bool
-	bufferSize    int
+	dialect           dialect.Dialect
+	encoding          Encoding
+	hasHeader         bool
+	headerSet         bool
+	autoSniff         bool
+	writeBOM          bool
+	stdlibParser      bool
+	unsafeStrings     bool
+	parallelWorkers   int
+	parallelThreshold int
+	bufferSize        int
 }
 
 func defaultConfig() *config {
 	return &config{
-		dialect:    dialect.Default(),
-		encoding:   EncodingAuto,
-		hasHeader:  false,
-		headerSet:  false,
-		autoSniff:  true,
-		bufferSize: 64 * 1024,
+		dialect:           dialect.Default(),
+		encoding:          EncodingAuto,
+		hasHeader:         false,
+		headerSet:         false,
+		autoSniff:         true,
+		parallelWorkers:   0,
+		parallelThreshold: 10 * 1024 * 1024,
+		bufferSize:        64 * 1024,
 	}
 }
 
@@ -121,6 +125,18 @@ func WithWriteBOM(enabled bool) Option {
 
 func WithUnsafeStrings() Option {
 	return func(c *config) { c.unsafeStrings = true }
+}
+
+func WithParallel(n int) Option {
+	return func(c *config) { c.parallelWorkers = n }
+}
+
+func WithParallelThreshold(size int) Option {
+	return func(c *config) {
+		if size > 0 {
+			c.parallelThreshold = size
+		}
+	}
 }
 
 func applyOptions(opts []Option) *config {

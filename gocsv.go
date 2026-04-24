@@ -73,7 +73,11 @@ func openInternal(reader io.Reader, raw []byte, cfg *config) (*File, error) {
 	var errs []*ParseError
 	var err error
 	if !cfg.stdlibParser && (enc == EncodingUTF8 || enc == EncodingAuto) {
-		rows, errs, err = parseBytesAdapter(payload, cfg)
+		if cfg.parallelWorkers != 1 && len(payload) >= cfg.parallelThreshold {
+			rows, errs, err = parseBytesParallelAdapter(payload, cfg)
+		} else {
+			rows, errs, err = parseBytesAdapter(payload, cfg)
+		}
 	} else {
 		decoded := encoding.NewDecoder(bytes.NewReader(payload), enc)
 		rows, errs, err = readAll(decoded, cfg)
@@ -123,6 +127,18 @@ func convertParseErrors(src []*parser.ParseError) []*ParseError {
 		out[i] = &ParseError{Line: e.Line, Column: e.Column, Offset: e.Offset, Err: e.Err}
 	}
 	return out
+}
+
+func parseBytesParallelAdapter(data []byte, cfg *config) ([][]string, []*ParseError, error) {
+	rawRows, rawErrs, err := parser.ParseBytesParallel(data, cfg.dialect, cfg.unsafeStrings, cfg.parallelWorkers)
+	if err != nil {
+		pe := &ParseError{Err: err}
+		if parseErr, ok := err.(*parser.ParseError); ok {
+			pe = &ParseError{Line: parseErr.Line, Column: parseErr.Column, Offset: parseErr.Offset, Err: parseErr.Err}
+		}
+		return rawRows, convertParseErrors(rawErrs), pe
+	}
+	return rawRows, convertParseErrors(rawErrs), nil
 }
 
 func readAll(r io.Reader, cfg *config) ([][]string, []*ParseError, error) {

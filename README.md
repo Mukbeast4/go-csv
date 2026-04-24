@@ -167,21 +167,24 @@ f.Range("A1:B2").SetValues([][]any{{"a", "b"}, {"c", "d"}})
 
 ## Performance
 
-Benchmarks on Apple M4 Pro (10k-row file, mixed quoted/unquoted):
+Benchmarks on Apple M4 Pro (Apple Silicon, 12 cores):
 
 ```
-BenchmarkOpenBytes          1.3 ms/op    411 MB/s   (safe, default)
-BenchmarkOpenBytesUnsafe    0.9 ms/op    561 MB/s   (WithUnsafeStrings)
-BenchmarkOpenBytesStdlib    0.9 ms/op    580 MB/s   (encoding/csv)
-BenchmarkStreamRead         2.2 ms/op    240 MB/s
-BenchmarkCellLookup          20 ns/op
-BenchmarkSniffDelimiter      10 µs/op    593 MB/s
+10k rows (~580 KB):
+  BenchmarkOpenBytes          1.3 ms/op    411 MB/s   (safe, default)
+  BenchmarkOpenBytesUnsafe    0.9 ms/op    577 MB/s   (WithUnsafeStrings)
+  BenchmarkOpenBytesStdlib    0.9 ms/op    584 MB/s   (encoding/csv)
+
+200k rows (~11 MB, triggers parallel):
+  BenchmarkOpenBytesParallel   10 ms/op   1163 MB/s   (WithUnsafeStrings, auto-parallel)
+  BenchmarkOpenBytesSequential 17 ms/op    701 MB/s   (WithUnsafeStrings, serial)
 ```
 
 ### Fast options
 
 - **Default** — safe, 71 % of stdlib throughput, half the allocations.
 - **`WithUnsafeStrings()`** — uses `unsafe.String` for zero-copy fields, reaches ~97 % of stdlib throughput with half as many allocations. **Caller must not modify the input `[]byte` while the `*File` is in use** — fields share memory with the input buffer.
+- **Parallel parsing** — automatically enabled when input `[]byte` is >= 10 MB. Uses `runtime.NumCPU()` workers by default. Doubles stdlib throughput on large files. Configure with `WithParallel(n)` to force N workers (`n=1` disables, `n=0` auto) and `WithParallelThreshold(bytes)` to tune the auto-activation size.
 - **`WithStdlibParser()`** — delegate to `encoding/csv`. Loses BOM/encoding/error-mode features but matches stdlib exactly.
 
 ## Concurrency
@@ -294,15 +297,24 @@ ods.AppendSheet("report.ods", "Q2", csvFile)
 go install github.com/mukbeast4/go-csv/cmd/gocsv@latest
 
 gocsv head -n 20 file.csv
+gocsv tail -n 10 file.csv
 gocsv select -c name,email users.csv
 gocsv filter -w "age > 30" users.csv
+gocsv sort -c age -desc users.csv
 gocsv stats file.csv
 gocsv validate -schema schema.json file.csv
 gocsv convert -to ods file.csv out.ods
 gocsv join -on user_id -mode left a.csv b.csv
+gocsv diff -on id before.csv after.csv
+gocsv sql "SELECT city, COUNT(*), AVG(age) FROM t GROUP BY city" users.csv
+gocsv gen-struct -name User -package models users.csv > user.go
 ```
 
-Filter ops: `==`, `!=`, `<`, `>`, `<=`, `>=`, `contains`, `starts`, `regex`.
+**Filter ops**: `==`, `!=`, `<`, `>`, `<=`, `>=`, `contains`, `starts`, `regex`.
+
+**SQL** supports: `SELECT cols | *`, aggregates (`COUNT/SUM/AVG/MIN/MAX`), `WHERE` (`=`, `!=`, `<`, `>`, `<=`, `>=`, `LIKE`, `IS NULL`, `IS NOT NULL`, `AND`, `OR`, `NOT`, parentheses), `GROUP BY`, `ORDER BY ... [ASC|DESC]`, `LIMIT n`, column aliases (`AS`). No JOIN or subqueries.
+
+**gen-struct** scans the CSV, infers `int64 / float64 / bool / time.Time / string` per column, and emits a Go struct with `csv:` tags ready for the `marshal` package.
 
 ## Examples
 
